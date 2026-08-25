@@ -1,0 +1,8 @@
+streamlit==1.42.0
+pandas
+openpyxl
+pypdf
+chromadb
+groq
+sentence-transformers
+python-dotenv
