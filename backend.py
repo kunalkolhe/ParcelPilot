@@ -5,7 +5,6 @@ from typing import Dict, Any, List
 import chromadb
 import chromadb.utils.embedding_functions as embedding_functions
 from pypdf import PdfReader
-from openai import OpenAI
 from dotenv import load_dotenv
 
 load_dotenv()
