@@ -88,6 +88,7 @@ if not api_key:
 client = Groq(api_key=api_key)
 
 SYSTEM_PROMPT = """You are the ParcelPilot AI Support Agent.
+The current date and time is 2026-08-16 11:00 Asia/Kolkata. Use this as "now" for all SLA and time-based calculations.
 Your job is to answer support queries quickly and reliably, and help investigate issues.
 
 CRITICAL RULES:
@@ -127,7 +128,7 @@ if st.session_state.pending_action:
         if st.button("Confirm Action", type="primary"):
             # Execute it
             args = json.loads(action['function']['arguments'])
-            result = execute_tool(action['function']['name'], args)
+            result = execute_tool(action['function']['name'], args, account_context)
             
             # Append tool response
             st.session_state.messages.append({
@@ -140,7 +141,7 @@ if st.session_state.pending_action:
             for tc in st.session_state.pending_tool_calls:
                 if tc["id"] != action["id"]:
                     args = json.loads(tc["function"]["arguments"])
-                    res = execute_tool(tc["function"]["name"], args)
+                    res = execute_tool(tc["function"]["name"], args, account_context)
                     st.session_state.messages.append({
                         "role": "tool",
                         "tool_call_id": tc["id"],
@@ -245,7 +246,7 @@ if len(st.session_state.messages) > 0:
                     for tc in clean_tool_calls:
                         st.caption(f"🔧 Calling {tc['function']['name']}...")
                         args = json.loads(tc['function']['arguments'])
-                        res = execute_tool(tc['function']['name'], args)
+                        res = execute_tool(tc['function']['name'], args, account_context)
                         st.session_state.messages.append({
                             "role": "tool",
                             "tool_call_id": tc["id"],

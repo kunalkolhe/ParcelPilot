@@ -96,13 +96,20 @@ def document_search(query: str) -> str:
         
     results = collection.query(
         query_texts=[query],
-        n_results=4
+        n_results=10
     )
     
+    docs_meta = list(zip(results['documents'][0], results['metadatas'][0]))
+    
+    # Separate into current and deprecated
+    current = [x for x in docs_meta if not x[1].get('deprecated')]
+    deprecated = [x for x in docs_meta if x[1].get('deprecated')]
+    
+    # Take top 4 overall, prioritizing current
+    final_docs = (current + deprecated)[:4]
+    
     out = []
-    for i in range(len(results['documents'][0])):
-        doc = results['documents'][0][i]
-        meta = results['metadatas'][0][i]
+    for doc, meta in final_docs:
         src = meta.get("source", "Unknown")
         dep = " (WARNING: DEPRECATED POLICY)" if meta.get("deprecated") else ""
         out.append(f"--- Source: {src}{dep} ---\n{doc}\n")
@@ -110,7 +117,7 @@ def document_search(query: str) -> str:
     return "\n".join(out)
 
 # Tool 2: Structured Data Lookup
-def structured_data_lookup(entity_type: str, entity_id: str) -> str:
+def structured_data_lookup(entity_type: str, entity_id: str, account_context: str = "ALL") -> str:
     """
     Query or calculate information using the supplied account, order, and ticket data.
     entity_type must be one of: 'account', 'order', 'ticket'
@@ -120,6 +127,12 @@ def structured_data_lookup(entity_type: str, entity_id: str) -> str:
     
     entity_type = entity_type.lower()
     
+    def enforce_context(res_df):
+        if account_context != "ALL" and not res_df.empty:
+            if 'account_id' in res_df.columns:
+                res_df = res_df[res_df['account_id'].astype(str) == str(account_context)]
+        return res_df
+
     if entity_type == 'account':
         df = df_accounts
         if df is None or df.empty: return "No account data available."
@@ -127,8 +140,9 @@ def structured_data_lookup(entity_type: str, entity_id: str) -> str:
         # We will do a generic string search across the first few columns
         match = df.astype(str).apply(lambda row: row.astype(str).str.contains(entity_id, case=False).any(), axis=1)
         res = df[match]
+        res = enforce_context(res)
         if res.empty:
-            return f"No account found matching '{entity_id}'"
+            return f"No account found matching '{entity_id}' (or access denied)"
         return res.to_json(orient="records")
         
     elif entity_type == 'order':
@@ -136,8 +150,9 @@ def structured_data_lookup(entity_type: str, entity_id: str) -> str:
         if df is None or df.empty: return "No order data available."
         match = df.astype(str).apply(lambda row: row.astype(str).str.contains(entity_id, case=False).any(), axis=1)
         res = df[match]
+        res = enforce_context(res)
         if res.empty:
-            return f"No order found matching '{entity_id}'"
+            return f"No order found matching '{entity_id}' (or access denied)"
         return res.to_json(orient="records")
         
     elif entity_type == 'ticket':
@@ -145,8 +160,9 @@ def structured_data_lookup(entity_type: str, entity_id: str) -> str:
         if df is None or df.empty: return "No ticket data available."
         match = df.astype(str).apply(lambda row: row.astype(str).str.contains(entity_id, case=False).any(), axis=1)
         res = df[match]
+        res = enforce_context(res)
         if res.empty:
-            return f"No ticket found matching '{entity_id}'"
+            return f"No ticket found matching '{entity_id}' (or access denied)"
         return res.to_json(orient="records")
         
     else:
@@ -229,11 +245,11 @@ tools_schema = [
 ]
 
 # Helper to dispatch tools
-def execute_tool(name: str, arguments: dict) -> str:
+def execute_tool(name: str, arguments: dict, account_context: str = "ALL") -> str:
     if name == "document_search":
         return document_search(arguments.get("query", ""))
     elif name == "structured_data_lookup":
-        return structured_data_lookup(arguments.get("entity_type", ""), arguments.get("entity_id", ""))
+        return structured_data_lookup(arguments.get("entity_type", ""), arguments.get("entity_id", ""), account_context)
     elif name == "take_action":
         return take_action(arguments.get("action_type", ""), arguments.get("details", ""))
     else:
