@@ -11,3 +11,4 @@ __pycache__/
 
 # ChromaDB local persistence (if any)
 chroma_db/
+.chroma_store/

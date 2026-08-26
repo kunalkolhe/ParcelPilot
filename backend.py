@@ -9,111 +9,156 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+# Resolve all data paths relative to this file, not the process's cwd.
+# (A relative path like "01_..._CURRENT.pdf" silently resolves to nothing
+# if streamlit is launched from a different working directory, which was
+# quietly emptying the document index with no error shown anywhere.)
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+CHROMA_STORE_DIR = os.path.join(BASE_DIR, ".chroma_store")
+
 # Global state
 df_accounts = None
 df_orders = None
 df_tickets = None
 collection = None
+init_error = None
 
 # Mock action log
 action_log = []
 
+PDF_FILES = [
+    "01_Support_Policy_v3_CURRENT.pdf",
+    "02_Support_Policy_v2_DEPRECATED.pdf",
+    "03_Cancellation_and_Service_Credit_SOP_v4.pdf",
+    "04_Product_Operations_Guide_and_Known_Issues.pdf",
+    "05_Northstar_Logistics_Enterprise_Agreement.pdf",
+    "06_LumenWorks_Service_Agreement.pdf"
+]
+
 def init_backend():
-    global df_accounts, df_orders, df_tickets, collection
-    
+    global df_accounts, df_orders, df_tickets, collection, init_error
+    init_error = None
+
     # 1. Load Excel
-    excel_path = "ParcelPilot_Assessment_Data.xlsx"
+    excel_path = os.path.join(BASE_DIR, "ParcelPilot_Assessment_Data.xlsx")
     try:
         df_accounts = pd.read_excel(excel_path, sheet_name="accounts")
         df_orders = pd.read_excel(excel_path, sheet_name="orders")
         df_tickets = pd.read_excel(excel_path, sheet_name="tickets")
     except Exception as e:
-        print(f"Error loading Excel: {e}")
-        # Create empty dataframes as fallback if sheet names differ
+        init_error = f"Failed to load structured data ({excel_path}): {e}"
+        print(init_error)
         df_accounts = pd.DataFrame()
         df_orders = pd.DataFrame()
         df_tickets = pd.DataFrame()
 
     # 2. Load PDFs into ChromaDB
-    # Using DefaultEmbeddingFunction (all-MiniLM-L6-v2) for free local embeddings
-    ef = embedding_functions.DefaultEmbeddingFunction()
-    
-    chroma_client = chromadb.Client()
-    # Delete if exists to avoid errors on reload
+    # Using a persistent client (backed by CHROMA_STORE_DIR) instead of an
+    # in-memory one: the embedding model download + PDF embedding is the
+    # slowest, most failure-prone step, and re-running it from scratch on
+    # every process start/rerun was the main reason document search kept
+    # coming back empty. Persisting means it only has to succeed once.
     try:
-        chroma_client.delete_collection(name="parcelpilot_docs")
-    except Exception:
-        pass
-        
-    collection = chroma_client.create_collection(
-        name="parcelpilot_docs", 
-        embedding_function=ef
-    )
-    
-    pdfs = [
-        "01_Support_Policy_v3_CURRENT.pdf",
-        "02_Support_Policy_v2_DEPRECATED.pdf",
-        "03_Cancellation_and_Service_Credit_SOP_v4.pdf",
-        "04_Product_Operations_Guide_and_Known_Issues.pdf",
-        "05_Northstar_Logistics_Enterprise_Agreement.pdf",
-        "06_LumenWorks_Service_Agreement.pdf"
-    ]
-    
-    docs = []
-    ids = []
-    metadatas = []
-    
-    for pdf in pdfs:
-        if not os.path.exists(pdf):
-            continue
-        reader = PdfReader(pdf)
-        text = ""
-        for page in reader.pages:
-            if page.extract_text():
-                text += page.extract_text() + "\n"
-        
-        # Simple chunking (1500 chars)
-        chunk_size = 1500
-        chunks = [text[i:i+chunk_size] for i in range(0, len(text), chunk_size)]
-        for i, chunk in enumerate(chunks):
-            docs.append(chunk)
-            ids.append(f"{pdf}_chunk_{i}")
-            is_deprecated = "DEPRECATED" in pdf
-            metadatas.append({"source": pdf, "deprecated": is_deprecated})
-            
-    if docs:
-        collection.add(
-            documents=docs,
-            metadatas=metadatas,
-            ids=ids
+        ef = embedding_functions.SentenceTransformerEmbeddingFunction(
+            model_name="all-MiniLM-L6-v2"
         )
+
+        chroma_client = chromadb.PersistentClient(path=CHROMA_STORE_DIR)
+
+        try:
+            existing = chroma_client.get_collection(name="parcelpilot_docs", embedding_function=ef)
+            if existing.count() > 0:
+                collection = existing
+                return
+        except Exception:
+            pass
+
+        try:
+            chroma_client.delete_collection(name="parcelpilot_docs")
+        except Exception:
+            pass
+
+        collection = chroma_client.create_collection(
+            name="parcelpilot_docs",
+            embedding_function=ef
+        )
+
+        docs = []
+        ids = []
+        metadatas = []
+
+        missing_pdfs = []
+        for pdf in PDF_FILES:
+            pdf_path = os.path.join(BASE_DIR, pdf)
+            if not os.path.exists(pdf_path):
+                missing_pdfs.append(pdf)
+                continue
+            reader = PdfReader(pdf_path)
+            text = ""
+            for page in reader.pages:
+                if page.extract_text():
+                    text += page.extract_text() + "\n"
+
+            # Chunk with overlap so clauses near a chunk boundary aren't split
+            # across two chunks and missed by similarity search.
+            chunk_size = 1500
+            overlap = 200
+            step = chunk_size - overlap
+            chunks = [text[i:i + chunk_size] for i in range(0, len(text), step) if text[i:i + chunk_size].strip()]
+            is_deprecated = "DEPRECATED" in pdf
+            for i, chunk in enumerate(chunks):
+                docs.append(chunk)
+                ids.append(f"{pdf}_chunk_{i}")
+                metadatas.append({"source": pdf, "deprecated": is_deprecated})
+
+        if missing_pdfs:
+            print(f"WARNING: these source PDFs were not found next to backend.py: {missing_pdfs}")
+
+        if docs:
+            collection.add(documents=docs, metadatas=metadatas, ids=ids)
+            print(f"Indexed {len(docs)} chunks from {len(PDF_FILES) - len(missing_pdfs)} PDFs.")
+        else:
+            init_error = "No PDF text was indexed - document_search will have nothing to return."
+            print(init_error)
+
+    except Exception as e:
+        init_error = f"Failed to build the document index (embedding model download or ChromaDB error): {e}"
+        print(init_error)
+        collection = None
 
 # Tool 1: Document Search
 def document_search(query: str) -> str:
     """Searches policies, agreements, product documentation, SOPs."""
-    if not collection:
-        return "Database not initialized."
-        
-    results = collection.query(
-        query_texts=[query],
-        n_results=10
-    )
-    
+    if collection is None:
+        return (
+            f"ERROR: The document index is unavailable ({init_error or 'not initialized'}). "
+            "Tell the user this lookup failed rather than answering from memory, and escalate "
+            "if the question needs a policy or contract citation."
+        )
+
+    try:
+        results = collection.query(query_texts=[query], n_results=10)
+    except Exception as e:
+        return f"ERROR: Document search failed ({e}). Tell the user this lookup failed rather than answering from memory."
+
     docs_meta = list(zip(results['documents'][0], results['metadatas'][0]))
-    
+
+    if not docs_meta:
+        return "No matching content was found in the document set for this query."
+
     # Separate into current and deprecated
     current = [x for x in docs_meta if not x[1].get('deprecated')]
     deprecated = [x for x in docs_meta if x[1].get('deprecated')]
-    
+
     # Take top 4 overall, prioritizing current
     final_docs = (current + deprecated)[:4]
-    
+
     out = []
     for doc, meta in final_docs:
         src = meta.get("source", "Unknown")
-        dep = " (WARNING: DEPRECATED POLICY)" if meta.get("deprecated") else ""
+        dep = " (WARNING: DEPRECATED POLICY - superseded, do not rely on this)" if meta.get("deprecated") else ""
         out.append(f"--- Source: {src}{dep} ---\n{doc}\n")
-        
+
     return "\n".join(out)
 
 # Tool 2: Structured Data Lookup

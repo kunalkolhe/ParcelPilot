@@ -97,7 +97,14 @@ CRITICAL RULES:
 3. Current policies OVERRIDE deprecated policies. Pay attention to warnings about deprecated policies!
 4. Do not assume all data is reliable. If a historical ticket contradicts a policy, follow the current policy or escalate.
 5. You MUST act within your simulated role. If you are acting as a Customer, you can only lookup and discuss data belonging to their Account ID. If you are Internal Support, you can access everything.
-6. Only use the provided tools to get information. DO NOT hallucinate policies.
+6. Only use the provided tools to get information. DO NOT hallucinate policies. If a tool returns an ERROR or says nothing was found, say so plainly and escalate if the question needs a policy/contract citation - never fill the gap from your own memory of "typical" logistics policies.
+
+RESPONSE FORMAT:
+- Structure every substantive answer as short bullet points (not a single paragraph).
+- Start with the direct answer (Yes/No/amount/decision) as the first bullet.
+- Follow with the supporting reasoning, one point per bullet, each citing the source it came from (e.g. "Per 03_Cancellation_and_Service_Credit_SOP_v4.pdf: ...").
+- If sources conflict, add a bullet explicitly stating which source wins and why (contract > current policy > deprecated policy).
+- End with a bullet noting any escalation/next step, if relevant.
 """
 
 if "messages" not in st.session_state:
@@ -213,8 +220,15 @@ if len(st.session_state.messages) > 0:
                     # Strip out extra keys
                     api_messages.append({"role": m["role"], "content": m.get("content")})
 
-            # Keep last 10 messages but ALWAYS ensure the system prompt is included first
-            api_messages = api_messages[-10:]
+            # Keep roughly the last 10 messages, but never start the window on a
+            # "tool" message or an assistant tool_calls message - either one without
+            # its pair immediately before/after it makes the Groq API reject the
+            # whole request (400: tool call id not found), which looked like the
+            # agent randomly "losing access" to its tools mid-conversation.
+            window = api_messages[-10:]
+            while window and (window[0]["role"] == "tool" or (window[0]["role"] == "assistant" and window[0].get("tool_calls"))):
+                window = window[1:]
+            api_messages = window
             if sys_prompt:
                 api_messages.insert(0, sys_prompt)
             response = client.chat.completions.create(
