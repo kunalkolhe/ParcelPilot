@@ -4,7 +4,7 @@ An intelligent, multi-agent Retrieval-Augmented Generation (RAG) support system 
 
 This application serves as a dynamic customer service and internal operations assistant. It securely bridges unstructured policy documents (PDFs) and structured operational data (Excel) to resolve complex support queries, all while strictly adhering to user role permissions.
 
-## 🚀 Key Features
+##  Key Features
 
 * **Intelligent Document Retrieval**: Uses a local **ChromaDB** vector store and `sentence-transformers` embeddings to semantically search and reason over complex, occasionally conflicting company policies.
 * **Structured Data Execution**: Integrates with Python's **Pandas** to perform live lookups and calculations against historical customer account, order, and ticket data.
@@ -12,7 +12,7 @@ This application serves as a dynamic customer service and internal operations as
 * **Human-in-the-Loop Safeguards**: If the AI attempts to execute a state-changing action (e.g., issuing a refund or creating a ticket), the Streamlit event loop is hard-paused. A UI warning forces explicit human authorization before the mutation proceeds.
 * **Zero-Cost Lightning Inference**: Powered by the open-source `openai/gpt-oss-120b` model running on **Groq's** LPU inference engine for near-instantaneous reasoning and function calling.
 
-## 🛠 Tech Stack
+##  Tech Stack
 
 * **Frontend:** Streamlit (Python)
 * **LLM Engine:** Groq API (`openai/gpt-oss-120b`)
