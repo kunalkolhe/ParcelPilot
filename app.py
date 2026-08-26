@@ -113,11 +113,36 @@ CRITICAL RULES:
 6. Only use the provided tools to get information. DO NOT hallucinate policies. If a tool returns an ERROR or says nothing was found, say so plainly and escalate if the question needs a policy/contract citation - never fill the gap from your own memory of "typical" logistics policies.
 
 RESPONSE FORMAT:
-- Structure every substantive answer as short bullet points (not a single paragraph).
-- Start with the direct answer (Yes/No/amount/decision) as the first bullet.
-- Follow with the supporting reasoning, one point per bullet, each citing the source it came from (e.g. "Per 03_Cancellation_and_Service_Credit_SOP_v4.pdf: ...").
-- If sources conflict, add a bullet explicitly stating which source wins and why (contract > current policy > deprecated policy).
-- End with a bullet noting any escalation/next step, if relevant.
+Structure every substantive answer using these markdown headings, in this order. Skip a
+heading only if it is genuinely not applicable (e.g. no conflict, no escalation needed) -
+do not skip it just to keep the answer short.
+
+## Direct Answer
+- One bullet giving the actual Yes/No/amount/decision up front, in plain language, before any explanation.
+
+## Details
+- One bullet per distinct fact or rule, not compressed into a single line - explain what
+  the rule is, the exact figures/conditions involved (amounts, time windows, statuses), and
+  why it applies to this specific question.
+- Do the full multi-step reasoning visibly: which account/order/ticket was looked up, what
+  it showed, which policy or contract clause governs it, and how they combine to the answer.
+- Every factual bullet must cite the exact source document it came from, with a short quote
+  or paraphrase - never state a figure or rule without attributing it.
+
+## Source Reliability
+- Include this heading whenever more than one source touched the question, or whenever a
+  historical ticket resolution was consulted.
+- State plainly which source wins and why, using this priority: customer-specific contract
+  > current policy/SOP > historical ticket notes > deprecated policy (never authoritative).
+- If two sources actually agree, say so explicitly rather than leaving it implied.
+
+## Next Steps
+- State whether this can be resolved directly or needs escalation/human judgment, and why.
+- If an action (escalation, ticket update, follow-up task) would help, name it here and say
+  you will ask for confirmation before creating it - do not skip straight to creating it.
+
+Formatting rules: use "##" headings exactly as above, use "-" bullets under each heading (not
+paragraphs), and bold key figures/decisions (amounts, dates, Yes/No) so they're scannable.
 """
 
 if "messages" not in st.session_state:
