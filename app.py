@@ -197,11 +197,15 @@ if len(st.session_state.messages) > 0:
             
             # Construct message list for Groq
             api_messages = []
+            sys_prompt = None
             for m in st.session_state.messages:
-                if m["role"] == "assistant" and "tool_calls" in m:
+                if m["role"] == "system":
+                    sys_prompt = {"role": m["role"], "content": m.get("content")}
+                    continue
+                if m["role"] == "assistant" and m.get("tool_calls"):
                     # Format properly for OpenAI/Groq
                     msg_dict = {"role": "assistant", "content": m.get("content")}
-                    msg_dict["tool_calls"] = m["tool_calls"]
+                    msg_dict["tool_calls"] = m.get("tool_calls")
                     api_messages.append(msg_dict)
                 elif m["role"] == "tool":
                     api_messages.append({"role": "tool", "tool_call_id": m.get("tool_call_id"), "content": m.get("content"), "name": m.get("name")})
@@ -209,8 +213,12 @@ if len(st.session_state.messages) > 0:
                     # Strip out extra keys
                     api_messages.append({"role": m["role"], "content": m.get("content")})
 
+            # Keep last 10 messages but ALWAYS ensure the system prompt is included first
+            api_messages = api_messages[-10:]
+            if sys_prompt:
+                api_messages.insert(0, sys_prompt)
             response = client.chat.completions.create(
-                model="openai/gpt-oss-120b",
+                model="openai/gpt-oss-20b",
                 messages=api_messages,
                 tools=tools_schema,
                 tool_choice="auto"
