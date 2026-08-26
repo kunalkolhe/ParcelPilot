@@ -5,6 +5,7 @@ from groq import Groq
 from dotenv import load_dotenv
 
 load_dotenv(override=True)
+import backend
 from backend import init_backend, tools_schema, execute_tool
 
 st.set_page_config(page_title="ParcelPilot Internal AI Agent", layout="wide", page_icon="📦")
@@ -78,6 +79,18 @@ with st.sidebar:
     st.info("The agent will respect this context and the supplied documentation.")
 
 load_data()
+
+# A failed first attempt (e.g. a slow/interrupted embedding-model download)
+# gets cached by @st.cache_resource just like a success would, which used to
+# leave the document index permanently broken for the rest of the server's
+# life. Detect that state and offer a one-click retry instead of requiring
+# a full process restart.
+if backend.collection is None:
+    st.error(f"Document index failed to load: {backend.init_error or 'unknown error'}")
+    if st.button("Retry loading document index"):
+        load_data.clear()
+        st.rerun()
+    st.stop()
 
 # Initialize Groq
 api_key = os.getenv("GROQ_API_KEY")
